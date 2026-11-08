@@ -1,5 +1,7 @@
 # Pedestrian Traffic Forecast
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://pedestriantrafficforecast-dul9zi2qspsujubr99nqqb.streamlit.app/)
+
 Forecasting hourly pedestrian counts in Melbourne to answer one question:
 **Is a time series foundation model worth it compared to a well-built LightGBM?**
 
@@ -136,4 +138,4 @@ PyTorch and LightGBM load different OpenMP runtimes that deadlock each other in 
 
 ## Deployment
 
-Streamlit Community Cloud, entry point `app/streamlit_app.py`. The app only needs `app/requirements.txt` and `results/`; Chronos is not run inside the app.
+[Live on Streamlit Community Cloud](https://pedestriantrafficforecast-dul9zi2qspsujubr99nqqb.streamlit.app/), entry point `app/streamlit_app.py`. The app only needs `app/requirements.txt` and `results/`; Chronos is not run inside the app.
