@@ -8,7 +8,7 @@ from src.backtest import RESULTS
 from src.palette import COLORS, MODELS
 INK, MUTED, SURFACE = "#0b0b0b", "#898781", "#fcfcfb"
 BLUES = LinearSegmentedColormap.from_list("blues", ["#cde2fb", "#6da7ec", "#256abf", "#0d366b"])
-DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 plt.rcParams.update(
     {
@@ -33,7 +33,7 @@ def tuning_table(path) -> str:
     if not path.exists():
         return ""
     report = json.loads(path.read_text())
-    lines = ["| Variante | MASE 24 h | MASE 7 d |", "|---|---|---|"]
+    lines = ["| Variant | MASE 24 h | MASE 7 d |", "|---|---|---|"]
     for variant in report["24"]:
         lines.append(f"| {variant} | {report['24'][variant]:.3f} | {report['168'][variant]:.3f} |")
     return "\n".join(lines)
@@ -47,7 +47,7 @@ def leaderboard(metrics: pd.DataFrame) -> str:
     agg["Coverage80"] = agg["Coverage80"].map("{:.0f} %".format)
     wide = agg.pivot(index="model", columns="horizon").reindex(present(agg))
     lines = [
-        "| Modell | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | Abdeckung 80 % (7 d) |",
+        "| Model | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | 80 % coverage (7 d) |",
         "|---|---|---|---|---|---|",
     ]
     for m, r in wide.iterrows():
@@ -62,7 +62,7 @@ def holiday_split(fc: pd.DataFrame, history: pd.DataFrame) -> str:
     df = fc[(fc["horizon"] == 168) & ~fc["imputed"]].merge(history[["unique_id", "ds", "holiday"]])
     df["ase"] = (df["y"] - df["yhat"]).abs() / df["scale"]
     tab = df.groupby(["model", "holiday"], observed=True)["ase"].mean().unstack().reindex(present(df))
-    lines = ["| Modell | MASE normale Tage | MASE Feiertage |", "|---|---|---|"]
+    lines = ["| Model | MASE regular days | MASE holidays |", "|---|---|---|"]
     lines += [f"| {m} | {r[False]:.3f} | {r[True]:.3f} |" for m, r in tab.iterrows()]
     return "\n".join(lines)
 
@@ -89,9 +89,9 @@ def hero(fc: pd.DataFrame, models: list[str], sensor: str, origin: pd.Timestamp,
         mase = (d["y"] - d["yhat"]).abs().mean() / d["scale"].iloc[0]
         ax.set_title(f"{model}  ·  MASE {mase:.2f}", loc="left", fontsize=10, color=INK)
         ax.grid(axis="y", color=MUTED, alpha=0.2)
-    axes[0].legend(["80 %-Intervall", "Ist", "Prognose"], loc="upper right", frameon=False, ncol=3, fontsize=9)
-    fig.supylabel("Passanten pro Stunde", color=INK)
-    fig.suptitle(f"{sensor}: 7-Tage-Prognose ab {origin + pd.Timedelta(hours=1):%d.%m.%Y}", x=0.01, ha="left")
+    axes[0].legend(["80 % interval", "Actual", "Forecast"], loc="upper right", frameon=False, ncol=3, fontsize=9)
+    fig.supylabel("Pedestrians per hour", color=INK)
+    fig.suptitle(f"{sensor}: 7-day forecast from {origin + pd.Timedelta(hours=1):%Y-%m-%d}", x=0.01, ha="left")
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -104,8 +104,8 @@ def heatmap(history: pd.DataFrame, sensor: str, path):
     im = ax.imshow(grid.to_numpy(), aspect="auto", cmap=BLUES)
     ax.set_yticks(range(7), DAYS)
     ax.set_xticks(range(0, 24, 2), [f"{h:02d}" for h in range(0, 24, 2)])
-    ax.set_xlabel("Stunde")
-    ax.set_title(f"{sensor}: mittlere Passanten pro Stunde", loc="left", fontsize=11)
+    ax.set_xlabel("Hour")
+    ax.set_title(f"{sensor}: mean pedestrians per hour", loc="left", fontsize=11)
     ax.spines[:].set_visible(False)
     fig.colorbar(im, ax=ax, pad=0.01).outline.set_visible(False)
     fig.tight_layout()
@@ -129,9 +129,9 @@ def main():
     report = "\n\n".join(
         [
             "## Leaderboard\n\n" + leaderboard(metrics),
-            "## Feiertage\n\n" + holiday_split(fc, history),
-            "## MASE pro Sensor (7 d)\n\n" + per_sensor(metrics),
-            "## LightGBM: Tuning und Features (Validierung)\n\n" + tuning_table(RESULTS / "tuning.json"),
+            "## Holidays\n\n" + holiday_split(fc, history),
+            "## MASE per sensor (7 d)\n\n" + per_sensor(metrics),
+            "## LightGBM: tuning and features (validation)\n\n" + tuning_table(RESULTS / "tuning.json"),
         ]
     )
     (RESULTS / "leaderboard.md").write_text(report + "\n")

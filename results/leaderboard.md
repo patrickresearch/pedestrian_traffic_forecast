@@ -1,6 +1,6 @@
 ## Leaderboard
 
-| Modell | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | Abdeckung 80 % (7 d) |
+| Model | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | 80 % coverage (7 d) |
 |---|---|---|---|---|---|
 | LightGBM-tuned | **0.657** | **0.725** | 15.9 % | 17.9 % | 70 % |
 | LightGBM | 0.711 | 0.769 | 16.6 % | 18.8 % | 69 % |
@@ -11,9 +11,9 @@
 | MSTL-ETS | 1.233 | 1.303 | 23.0 % | 26.5 % | 96 % |
 | SeasonalNaive | 1.016 | 1.012 | 24.5 % | 24.6 % | 87 % |
 
-## Feiertage
+## Holidays
 
-| Modell | MASE normale Tage | MASE Feiertage |
+| Model | MASE regular days | MASE holidays |
 |---|---|---|
 | LightGBM-tuned | 0.700 | 1.405 |
 | LightGBM | 0.745 | 1.420 |
@@ -24,7 +24,7 @@
 | MSTL-ETS | 1.253 | 2.646 |
 | SeasonalNaive | 0.979 | 1.938 |
 
-## MASE pro Sensor (7 d)
+## MASE per sensor (7 d)
 
 | Sensor | LightGBM-tuned | LightGBM | Chronos-2-Cov | Chronos-2 | Chronos-Bolt | Prophet | MSTL-ETS | SeasonalNaive |
 |---|---|---|---|---|---|---|---|---|
@@ -37,9 +37,9 @@
 | Swa295_T | **0.79** | 0.83 | 0.80 | 0.83 | 0.84 | 1.06 | 1.12 | 1.13 |
 | Swa31 | 0.69 | 0.76 | **0.64** | 0.64 | 0.65 | 0.88 | 1.39 | 0.86 |
 
-## LightGBM: Tuning und Features (Validierung)
+## LightGBM: tuning and features (validation)
 
-| Variante | MASE 24 h | MASE 7 d |
+| Variant | MASE 24 h | MASE 7 d |
 |---|---|---|
 | v1 | 0.731 | 0.814 |
 | v1 + Features | 0.725 | 0.838 |

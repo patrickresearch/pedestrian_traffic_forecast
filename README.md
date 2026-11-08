@@ -1,38 +1,38 @@
 # Pedestrian Traffic Forecast
 
-Stündliche Passantenzahlen in Melbourne vorhersagen und dabei eine Frage beantworten:
-**Lohnt sich ein Zeitreihen-Foundation-Model gegenüber einem gut gebauten LightGBM?**
+Forecasting hourly pedestrian counts in Melbourne to answer one question:
+**Is a time series foundation model worth it compared to a well-built LightGBM?**
 
 ![Hero](results/hero.png)
 
-## Daten
+## Data
 
-- [Melbourne Pedestrian Counting System](https://data.melbourne.vic.gov.au/explore/dataset/pedestrian-counting-system-monthly-counts-per-hour/), stündlich, ~100 Sensoren. Das Portal liefert ein rollierendes 2-Jahres-Fenster, Corona-Jahre sind damit automatisch ausgeschlossen.
-- Wetter: [Open-Meteo Historical API](https://open-meteo.com/en/docs/historical-weather-api) (Temperatur, Niederschlag)
-- Feiertage: `holidays` (AU, Victoria), inkl. Melbourne Cup und AFL Grand Final Friday
+- [Melbourne Pedestrian Counting System](https://data.melbourne.vic.gov.au/explore/dataset/pedestrian-counting-system-monthly-counts-per-hour/), hourly, ~100 sensors. The portal serves a rolling 2-year window, so the Covid years are excluded automatically.
+- Weather: [Open-Meteo Historical API](https://open-meteo.com/en/docs/historical-weather-api) (temperature, precipitation)
+- Holidays: `holidays` (AU, Victoria), including Melbourne Cup and AFL Grand Final Friday
 
-Auswahl: 8 Sensoren mit ≥ 99 % Abdeckung und dem höchsten mittleren Aufkommen. Lücken werden aufgefüllt, aber nicht bewertet.
+Selection: the 8 sensors with ≥ 99 % coverage and the highest mean volume. Gaps are filled but not scored.
 
-![Fingerabdruck](results/heatmap.png)
+![Fingerprint](results/heatmap.png)
 
-## Modelle
+## Models
 
-| Modell | Idee |
+| Model | Idea |
 |---|---|
-| SeasonalNaive | Wert derselben Stunde der Vorwoche |
-| MSTL-ETS | log-Skala, Zerlegung in Tages- und Wochensaison, ETS auf dem Rest |
-| Prophet | log-Skala, getrennte Tagesprofile für Werk- und Freitage, Feiertage, Wetter |
-| LightGBM | ein globales Modell über alle Sensoren, Kalender, Wetter, Lags; je Horizont ein Modell mit Lags ≥ Horizont, Quantilmodelle für das Intervall |
-| LightGBM-tuned | wie LightGBM, mit Optuna-Parametern und zusätzlichen Features (s. u.) |
-| Chronos-Bolt | `amazon/chronos-bolt-base` zero-shot, 2048 h Kontext, keine Kovariaten |
-| Chronos-2 | `amazon/chronos-2` zero-shot, 8192 h Kontext, univariat |
-| Chronos-2-Cov | wie Chronos-2, dazu Feiertag, Frei-Tag, Temperatur und Niederschlag als bekannte Zukunftswerte |
+| SeasonalNaive | value of the same hour one week earlier |
+| MSTL-ETS | log scale, decomposition into daily and weekly seasonality, ETS on the remainder |
+| Prophet | log scale, separate daily profiles for workdays and days off, holidays, weather |
+| LightGBM | one global model across all sensors with calendar, weather and lags; one model per horizon using lags ≥ horizon, quantile models for the interval |
+| LightGBM-tuned | like LightGBM, with Optuna parameters and additional features (see below) |
+| Chronos-Bolt | `amazon/chronos-bolt-base` zero-shot, 2048 h context, no covariates |
+| Chronos-2 | `amazon/chronos-2` zero-shot, 8192 h context, univariate |
+| Chronos-2-Cov | like Chronos-2, plus holiday, day off, temperature and precipitation as known future values |
 
 ## Backtest
 
-Rollierender Ursprung: 45 Ursprünge im Abstand von 8 Tagen über das letzte Jahr (dadurch wechselt der Wochentag des Ursprungs), Horizont 24 h und 7 Tage. Metriken: MASE (Skala: saisonaler Naive-Fehler mit Lag 168 im Training), sMAPE, Abdeckung des 80 %-Intervalls.
+Rolling origin: 45 origins 8 days apart over the last year (so the weekday of the origin rotates), horizons 24 h and 7 days. Metrics: MASE (scale: in-sample seasonal naive error with lag 168), sMAPE, coverage of the 80 % interval.
 
-| Modell | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | Abdeckung 80 % (7 d) |
+| Model | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | 80 % coverage (7 d) |
 |---|---|---|---|---|---|
 | LightGBM-tuned | **0.657** | **0.725** | 15.9 % | 17.9 % | 70 % |
 | LightGBM | 0.711 | 0.769 | 16.6 % | 18.8 % | 69 % |
@@ -43,11 +43,11 @@ Rollierender Ursprung: 45 Ursprünge im Abstand von 8 Tagen über das letzte Jah
 | MSTL-ETS | 1.233 | 1.303 | 23.0 % | 26.5 % | 96 % |
 | SeasonalNaive | 1.016 | 1.012 | 24.5 % | 24.6 % | 87 % |
 
-MASE < 1 heißt: besser als der saisonale Naive-Fehler im Training. 360 Fenster je Horizont (45 Ursprünge × 8 Sensoren).
+MASE < 1 means better than the in-sample seasonal naive error. 360 windows per horizon (45 origins × 8 sensors).
 
-### Feiertage
+### Holidays
 
-| Modell | MASE normale Tage | MASE Feiertage |
+| Model | MASE regular days | MASE holidays |
 |---|---|---|
 | LightGBM-tuned | 0.700 | 1.405 |
 | LightGBM | 0.745 | 1.420 |
@@ -58,7 +58,7 @@ MASE < 1 heißt: besser als der saisonale Naive-Fehler im Training. 360 Fenster 
 | MSTL-ETS | 1.253 | 2.646 |
 | SeasonalNaive | 0.979 | 1.938 |
 
-### MASE pro Sensor (7 d)
+### MASE per sensor (7 d)
 
 | Sensor | LightGBM-tuned | LightGBM | Chronos-2-Cov | Chronos-2 | Chronos-Bolt | Prophet | MSTL-ETS | SeasonalNaive |
 |---|---|---|---|---|---|---|---|---|
@@ -71,65 +71,65 @@ MASE < 1 heißt: besser als der saisonale Naive-Fehler im Training. 360 Fenster 
 | Swa295_T | **0.79** | 0.83 | 0.80 | 0.83 | 0.84 | 1.06 | 1.12 | 1.13 |
 | Swa31 | 0.69 | 0.76 | **0.64** | 0.64 | 0.65 | 0.88 | 1.39 | 0.86 |
 
-## LightGBM optimieren
+## Optimizing LightGBM
 
-Optuna (TPE, 50 Trials je Horizont) auf einem Validierungsfenster von 10 Wochen direkt vor dem ersten Backtest-Ursprung, Training davor. Da alle Lags ≥ Horizont sind, entspricht jede Validierungszeile einer echten h-Schritt-Prognose. Die Rundenzahl kommt aus Early Stopping. Gesucht wurde über Lernrate, Baumgröße, Regularisierung, Sampling, Verlustfunktion (L2, L1, Huber) und Zielgröße (log(y) oder Abweichung vom 4-Wochen-Mittel).
+Optuna (TPE, 50 trials per horizon) on a 10-week validation window directly before the first backtest origin, trained on everything before it. Since all lags are ≥ horizon, each validation row is a genuine h-step-ahead forecast. The number of rounds comes from early stopping. The search covered learning rate, tree size, regularization, sampling, loss (L2, L1, Huber) and target (log(y) or deviation from the 4-week same-hour mean).
 
-Neue Features: Stunde der Woche, Tage bis/seit Feiertag (gekappt bei 3), Abstand zu Weihnachten, Median und Streuung derselben Stunde über 4 Wochen, Wochentrend, Feiertag vor einer Woche, Frei-Tag am Vortag, Niederschlag der letzten 3 Stunden.
+New features: hour of week, days to/since holiday (capped at 3), distance to Christmas, median and standard deviation of the same hour over 4 weeks, weekly trend, holiday one week earlier, day off on the previous day, precipitation over the last 3 hours.
 
-| Variante | MASE 24 h | MASE 7 d |
+| Variant | MASE 24 h | MASE 7 d |
 |---|---|---|
 | v1 | 0.731 | 0.814 |
 | v1 + Features | 0.725 | 0.838 |
 | Tuning | 0.700 | 0.770 |
 | Tuning + Features | 0.680 | 0.774 |
 
-Beide Horizonte wählen L1-Verlust auf log(y), kleine Bäume (26–27 Blätter) und nur 30–45 % der Features pro Baum.
+Both horizons pick L1 loss on log(y), small trees (26–27 leaves) and only 30–45 % of the features per tree.
 
-## Erkenntnisse
+## Findings
 
-**Kurz: Der getunte LightGBM gewinnt, Chronos-2 mit Kovariaten kommt ohne Training bis auf 2 % heran.**
+**In short: the tuned LightGBM wins, Chronos-2 with covariates gets within 2 % without any training.**
 
-- **Optimierung:** LightGBM-tuned verbessert MASE gegenüber v1 um 8 % (24 h, 0.711 → 0.657) und 6 % (7 d, 0.769 → 0.725) und gewinnt rund zwei Drittel der Fenster gegen v1. Den größten Teil bringt das Tuning. Beide Horizonte wählen L1-Verlust, der direkt den absoluten Fehler optimiert, auf dem MASE beruht. Die neuen Features helfen beim 24-h-Modell, beim 7-Tage-Modell sind sie neutral. Wichtigstes neues Feature ist der Median derselben Stunde über 4 Wochen (rund 30 % des Gains), er ist robuster gegen einzelne Feiertage als der Mittelwert.
-- **Chronos-2 gegen Chronos-Bolt:** Chronos-2 ist bei 7 Tagen 5 % besser (0.760 gegen 0.796), bei 24 h gleichauf. Der längere Kontext und die direkte Prognose über 168 Schritte zahlen sich beim langen Horizont aus.
-- **Kovariaten:** Feiertage und Wetter verbessern Chronos-2 um 2–3 % (7 d: 0.736 gegen 0.760). Damit ist Chronos-2-Cov bei 7 Tagen fast gleichauf mit LightGBM-tuned (0.736 gegen 0.725) und gewinnt sogar etwas mehr Einzelfenster (185 gegen 175). Bei 24 h bleibt LightGBM klar vorn (0.657 gegen 0.728), weil es die Lags der letzten Tage nutzt.
-- **Feiertage:** Alle Modelle verdoppeln ihren Fehler. LightGBM-tuned bleibt dort am besten (1.41). Chronos-2-Cov ist an normalen Tagen fast so gut (0.704 gegen 0.700), an Feiertagen aber schlechter (1.62) und nicht besser als ohne Kovariaten. Das Feiertags-Flag allein erklärt dem Foundation Model nicht, wie stark ein Feiertag wirkt.
-- **Intervalle:** Chronos-Bolt ist am besten kalibriert (80–84 % Abdeckung beim 80 %-Intervall), Chronos-2 liegt bei 73–77 %. Die LightGBM-Quantilmodelle sind zu schmal (68–70 %), MSTL-ETS ist viel zu breit (96 %).
-- **Aufwand:** Alle Chronos-Varianten brauchen keine Features und kein Training: 1–3 Minuten für 45 Ursprünge auf MPS. LightGBM-tuned braucht dafür zusätzlich rund 20 Minuten Tuning und ein Mehrfaches an Rechenzeit im Backtest.
-- **Überraschung:** MSTL-ETS und Prophet sind nicht besser als die Vorwoche. Für stabile Pendlerstandorte ist der saisonale Naive-Ansatz schon stark, und LightGBM verdankt rund drei Viertel seines Gains den Werten derselben Stunde in den letzten vier Wochen.
+- **Optimization:** LightGBM-tuned improves MASE over v1 by 8 % (24 h, 0.711 → 0.657) and 6 % (7 d, 0.769 → 0.725) and wins about two thirds of the windows against v1. Most of the gain comes from tuning. Both horizons pick L1 loss, which directly optimizes the absolute error that MASE is based on. The new features help the 24 h model and are neutral for the 7-day model. The most important new feature is the 4-week same-hour median (about 30 % of the gain), which is more robust to single holidays than the mean.
+- **Chronos-2 vs. Chronos-Bolt:** Chronos-2 is 5 % better at 7 days (0.760 vs. 0.796) and on par at 24 h. The longer context and the direct 168-step forecast pay off at the long horizon.
+- **Covariates:** Holidays and weather improve Chronos-2 by 2–3 % (7 d: 0.736 vs. 0.760). That puts Chronos-2-Cov almost level with LightGBM-tuned at 7 days (0.736 vs. 0.725), and it even wins slightly more individual windows (185 vs. 175). At 24 h LightGBM stays clearly ahead (0.657 vs. 0.728) because it uses the lags of the last few days.
+- **Holidays:** All models roughly double their error. LightGBM-tuned stays best there (1.41). Chronos-2-Cov is almost as good on regular days (0.704 vs. 0.700) but worse on holidays (1.62), and no better than without covariates. A holiday flag alone does not tell the foundation model how strong the effect of a holiday is.
+- **Intervals:** Chronos-Bolt is best calibrated (80–84 % coverage for the 80 % interval), Chronos-2 reaches 73–77 %. The LightGBM quantile models are too narrow (68–70 %), MSTL-ETS is far too wide (96 %).
+- **Effort:** None of the Chronos variants need features or training: 1–3 minutes for 45 origins on MPS. LightGBM-tuned additionally needs about 20 minutes of tuning and several times the compute in the backtest.
+- **Surprise:** MSTL-ETS and Prophet are no better than last week's value. For stable commuter locations the seasonal naive approach is already strong, and LightGBM owes about three quarters of its gain to the values of the same hour over the last four weeks.
 
-Für Digital Signage heißt das: Chronos-2 mit Kalender und Wetter ist eine sehr gute Ausgangsbasis, die man ohne Data-Science-Aufwand für neue Standorte nutzen kann, und für Wochenprognosen kaum schlechter als ein getunter LightGBM. Für Tagesprognosen und Feiertage lohnt sich das eigene Modell.
+For digital signage this means: Chronos-2 with calendar and weather is a very good baseline that can be rolled out to new locations without data science effort, and for weekly forecasts it is barely worse than a tuned LightGBM. For daily forecasts and holidays, a dedicated model pays off.
 
-Einschränkung: Prophet, LightGBM und Chronos-2-Cov bekommen das tatsächlich beobachtete Wetter als Regressor (Oracle). Mit Wetterprognosen wären sie etwas schlechter.
+Caveat: Prophet, LightGBM and Chronos-2-Cov receive the actually observed weather as a regressor (oracle). With weather forecasts they would be slightly worse.
 
-## Struktur
+## Structure
 
 ```
-data/download.py        Zählungen und Wetter nach data/raw/ laden
-src/features.py         Sensorauswahl, Stundenraster, Kalender, Wetter
-src/models.py           alle Modelle mit einheitlicher Schnittstelle
-src/metrics.py          MASE, sMAPE, Abdeckung
-src/tune.py             Optuna-Tuning für LightGBM auf einem Zeitraum vor dem Backtest
-src/backtest.py         rollierender Backtest, schreibt results/*.parquet
-src/report.py           README-Grafiken und Tabellen
+data/download.py        download counts and weather to data/raw/
+src/features.py         sensor selection, hourly grid, calendar, weather
+src/models.py           all models behind one interface
+src/metrics.py          MASE, sMAPE, coverage
+src/tune.py             Optuna tuning for LightGBM on a window before the backtest
+src/backtest.py         rolling backtest, writes results/*.parquet
+src/report.py           README figures and tables
 notebooks/              01_eda, 02_baselines, 03_foundation
-app/streamlit_app.py    lädt nur vorberechnete Ergebnisse
+app/streamlit_app.py    loads precomputed results only
 ```
 
-## Reproduzieren
+## Reproduce
 
 ```bash
-brew install libomp      # für LightGBM auf macOS
+brew install libomp      # for LightGBM on macOS
 uv sync
 uv run python data/download.py
-uv run python -m src.tune         # ~20 min, schreibt results/lgb_params.json
-uv run python -m src.backtest     # --debug für Details, --resume nach Abbruch
+uv run python -m src.tune         # ~20 min, writes results/lgb_params.json
+uv run python -m src.backtest     # --debug for details, --resume after an interruption
 uv run python -m src.report
 uv run streamlit run app/streamlit_app.py
 ```
 
-PyTorch und LightGBM laden unterschiedliche OpenMP-Laufzeiten, die sich in einem Prozess gegenseitig blockieren. Chronos läuft deshalb in einem eigenen Prozess.
+PyTorch and LightGBM load different OpenMP runtimes that deadlock each other in one process, so Chronos runs in a separate process.
 
 ## Deployment
 
-Streamlit Community Cloud, Einstiegspunkt `app/streamlit_app.py`. Die App braucht nur `app/requirements.txt` und `results/`, Chronos wird nicht in der App gerechnet.
+Streamlit Community Cloud, entry point `app/streamlit_app.py`. The app only needs `app/requirements.txt` and `results/`; Chronos is not run inside the app.
