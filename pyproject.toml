@@ -19,6 +19,7 @@ dependencies = [
     "streamlit>=1.40",
     "ipykernel>=6.29",
     "nbconvert>=7.16",
+    "optuna>=5.0.0",
 ]
 
 [build-system]

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import holidays
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,15 +58,30 @@ def holiday_dates(years) -> pd.DataFrame:
     return pd.DataFrame({"ds": pd.to_datetime(list(vic.keys())), "holiday": list(vic.values())})
 
 
+def _days(values) -> np.ndarray:
+    return np.asarray(values, dtype="datetime64[D]").astype(np.int64)
+
+
 def add_calendar(df: pd.DataFrame) -> pd.DataFrame:
-    days = holiday_dates(range(df["ds"].dt.year.min(), df["ds"].dt.year.max() + 1))["ds"]
     ds = df["ds"]
+    years = range(ds.dt.year.min() - 1, ds.dt.year.max() + 2)
+    hol = np.unique(_days(holiday_dates(years)["ds"]))
+    day = _days(ds.dt.normalize())
+    nxt = np.searchsorted(hol, day)
+    prv = np.searchsorted(hol, day, side="right") - 1
+    xmas = day - _days(pd.to_datetime(ds.dt.year.astype(str) + "-12-25"))
+    xmas = np.where(xmas < -180, xmas + 365, xmas)
+    holiday = np.isin(day, hol)
     return df.assign(
         hour=ds.dt.hour,
         dow=ds.dt.day_of_week,
         doy=ds.dt.day_of_year,
-        holiday=ds.dt.normalize().isin(days),
-        offday=(ds.dt.day_of_week >= 5) | ds.dt.normalize().isin(days),
+        how=ds.dt.day_of_week * 24 + ds.dt.hour,
+        holiday=holiday,
+        offday=(ds.dt.day_of_week >= 5).to_numpy() | holiday,
+        days_to_holiday=np.minimum(hol[nxt] - day, 3),
+        days_since_holiday=np.minimum(day - hol[prv], 3),
+        xmas=np.clip(xmas, -40, 40),
     )
 
 
@@ -73,6 +89,7 @@ def add_weather(df: pd.DataFrame) -> pd.DataFrame:
     weather = pd.read_parquet(RAW / "weather.parquet").drop_duplicates("ds")
     out = df.merge(weather, on="ds", how="left")
     out[["temp", "precip"]] = out.groupby("unique_id")[["temp", "precip"]].ffill().fillna(0)
+    out["precip_3h"] = out.groupby("unique_id")["precip"].transform(lambda s: s.rolling(3, min_periods=1).sum())
     return out
 
 
@@ -80,3 +97,36 @@ def build_panel(n: int = N_SENSORS) -> pd.DataFrame:
     counts = load_counts()
     panel = make_panel(counts, select_sensors(counts, n))
     return add_weather(add_calendar(panel))
+
+
+BASE_FEATURES = ["sensor", "hour", "dow", "doy", "holiday", "offday", "temp", "precip"]
+EXTRA_FEATURES = ["how", "days_to_holiday", "days_since_holiday", "xmas", "precip_3h"]
+
+
+def lgb_features(df: pd.DataFrame, h: int, extended: bool) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """Target-derived features use lags >= h only, so one model covers all h steps without recursion.
+
+    Returns the frame, all feature columns and the target-derived ones (NaN during warm-up).
+    """
+    uid = df["unique_id"]
+    g = df.groupby("unique_id")["y"]
+    lags = [lag for lag in (24, 48, 72, 168, 336, 504, 672) if lag >= h]
+    feats = {f"lag_{lag}": g.shift(lag) for lag in lags}
+    same_hour = pd.concat([g.shift(lag) for lag in (168, 336, 504, 672)], axis=1)
+    feats["same_hour_4w"] = same_hour.mean(axis=1)
+    shifted = g.shift(h)
+    for w in (24, 168):
+        feats[f"mean_{w}"] = shifted.groupby(uid).transform(lambda s, w=w: s.rolling(w).mean())
+    if extended:
+        feats["same_hour_4w_median"] = same_hour.median(axis=1)
+        feats["same_hour_4w_std"] = same_hour.std(axis=1)
+        feats["week_trend"] = feats["mean_168"] - feats["mean_168"].groupby(uid).shift(168)
+    target_cols = list(feats)
+
+    calendar = {}
+    if extended:
+        calendar["lag168_holiday"] = df.groupby("unique_id")["holiday"].shift(168).astype(float)
+        if h < 168:
+            calendar["lag24_offday"] = df.groupby("unique_id")["offday"].shift(24).astype(float)
+    cols = BASE_FEATURES + (EXTRA_FEATURES if extended else []) + target_cols + list(calendar)
+    return df.assign(**feats, **calendar), cols, target_cols

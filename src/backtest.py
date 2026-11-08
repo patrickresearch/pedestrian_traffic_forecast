@@ -13,6 +13,8 @@ RESULTS = ROOT / "results"
 PARTIAL = RESULTS / "partial"
 H = 168
 SEASON = 168
+N_ORIGINS = 45
+STEP = 192
 
 log = logging.getLogger("backtest")
 
@@ -63,8 +65,8 @@ def run_model(name: str, panel: pd.DataFrame, cutoffs: list[pd.Timestamp]) -> pd
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--origins", type=int, default=45)
-    parser.add_argument("--step", type=int, default=192, help="hours between forecast origins")
+    parser.add_argument("--origins", type=int, default=N_ORIGINS)
+    parser.add_argument("--step", type=int, default=STEP, help="hours between forecast origins")
     parser.add_argument("--models", nargs="+", default=list(MODELS), choices=list(MODELS))
     parser.add_argument("--resume", action="store_true", help="reuse checkpoints in results/partial/")
     parser.add_argument("--debug", action="store_true")

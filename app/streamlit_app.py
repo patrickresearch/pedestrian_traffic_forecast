@@ -8,10 +8,10 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.metrics import coverage, mase, smape
+from src.palette import COLORS, MODELS
 
 RESULTS = ROOT / "results"
-MODELS = ["Chronos-Bolt", "LightGBM", "Prophet", "MSTL-ETS", "SeasonalNaive"]
-COLORS = dict(zip(MODELS, ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]))
+DEFAULT = ["LightGBM-tuned", "Chronos-2-Cov", "Chronos-Bolt", "SeasonalNaive"]
 DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 HORIZONS = {"24 Stunden": 24, "7 Tage": 168}
 
@@ -30,7 +30,8 @@ fc, history = load()
 with st.sidebar:
     st.header("Auswahl")
     sensor = st.selectbox("Sensor", sorted(fc["unique_id"].unique()))
-    models = st.multiselect("Modelle", MODELS, default=MODELS)
+    available = [m for m in MODELS if m in set(fc["model"])]
+    models = st.multiselect("Modelle", available, default=[m for m in DEFAULT if m in available] or available)
     horizon = HORIZONS[st.radio("Horizont", list(HORIZONS), index=1, horizontal=True)]
     band = st.selectbox("80 %-Intervall für", ["keins", *models], index=1 if models else 0)
     origins = sorted(fc["origin"].unique())

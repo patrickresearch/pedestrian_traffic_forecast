@@ -1,11 +1,11 @@
+import json
+
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 
 from src.backtest import RESULTS
-
-MODELS = ["Chronos-Bolt", "LightGBM", "Prophet", "MSTL-ETS", "SeasonalNaive"]
-COLORS = dict(zip(MODELS, ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]))
+from src.palette import COLORS, MODELS
 INK, MUTED, SURFACE = "#0b0b0b", "#898781", "#fcfcfb"
 BLUES = LinearSegmentedColormap.from_list("blues", ["#cde2fb", "#6da7ec", "#256abf", "#0d366b"])
 DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
@@ -25,13 +25,27 @@ plt.rcParams.update(
 )
 
 
+def present(df: pd.DataFrame) -> list[str]:
+    return [m for m in MODELS if m in set(df["model"].astype(str))]
+
+
+def tuning_table(path) -> str:
+    if not path.exists():
+        return ""
+    report = json.loads(path.read_text())
+    lines = ["| Variante | MASE 24 h | MASE 7 d |", "|---|---|---|"]
+    for variant in report["24"]:
+        lines.append(f"| {variant} | {report['24'][variant]:.3f} | {report['168'][variant]:.3f} |")
+    return "\n".join(lines)
+
+
 def leaderboard(metrics: pd.DataFrame) -> str:
     agg = metrics.groupby(["model", "horizon"])[["MASE", "sMAPE", "Coverage80"]].mean().reset_index()
     best = agg.groupby("horizon")["MASE"].transform("min") == agg["MASE"]
     agg["MASE"] = [f"**{v:.3f}**" if b else f"{v:.3f}" for v, b in zip(agg["MASE"], best)]
     agg["sMAPE"] = agg["sMAPE"].map("{:.1f} %".format)
     agg["Coverage80"] = agg["Coverage80"].map("{:.0f} %".format)
-    wide = agg.pivot(index="model", columns="horizon").reindex(MODELS)
+    wide = agg.pivot(index="model", columns="horizon").reindex(present(agg))
     lines = [
         "| Modell | MASE 24 h | MASE 7 d | sMAPE 24 h | sMAPE 7 d | Abdeckung 80 % (7 d) |",
         "|---|---|---|---|---|---|",
@@ -47,7 +61,7 @@ def leaderboard(metrics: pd.DataFrame) -> str:
 def holiday_split(fc: pd.DataFrame, history: pd.DataFrame) -> str:
     df = fc[(fc["horizon"] == 168) & ~fc["imputed"]].merge(history[["unique_id", "ds", "holiday"]])
     df["ase"] = (df["y"] - df["yhat"]).abs() / df["scale"]
-    tab = df.groupby(["model", "holiday"], observed=True)["ase"].mean().unstack().reindex(MODELS)
+    tab = df.groupby(["model", "holiday"], observed=True)["ase"].mean().unstack().reindex(present(df))
     lines = ["| Modell | MASE normale Tage | MASE Feiertage |", "|---|---|---|"]
     lines += [f"| {m} | {r[False]:.3f} | {r[True]:.3f} |" for m, r in tab.iterrows()]
     return "\n".join(lines)
@@ -55,18 +69,19 @@ def holiday_split(fc: pd.DataFrame, history: pd.DataFrame) -> str:
 
 def per_sensor(metrics: pd.DataFrame) -> str:
     tab = metrics[metrics["horizon"] == 168].pivot_table(index="unique_id", columns="model", values="MASE")
-    tab = tab[MODELS]
-    lines = ["| Sensor | " + " | ".join(MODELS) + " |", "|---" * (len(MODELS) + 1) + "|"]
+    models = present(metrics)
+    tab = tab[models]
+    lines = ["| Sensor | " + " | ".join(models) + " |", "|---" * (len(models) + 1) + "|"]
     for s, r in tab.iterrows():
         cells = [f"**{v:.2f}**" if v == r.min() else f"{v:.2f}" for v in r]
         lines.append(f"| {s} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
-def hero(fc: pd.DataFrame, sensor: str, origin: pd.Timestamp, path):
+def hero(fc: pd.DataFrame, models: list[str], sensor: str, origin: pd.Timestamp, path):
     week = fc[(fc["unique_id"] == sensor) & (fc["origin"] == origin) & (fc["horizon"] == 168)]
-    fig, axes = plt.subplots(len(MODELS), 1, figsize=(10, 9), sharex=True, sharey=True)
-    for ax, model in zip(axes, MODELS):
+    fig, axes = plt.subplots(len(models), 1, figsize=(10, 1.8 * len(models)), sharex=True, sharey=True)
+    for ax, model in zip(axes, models):
         d = week[week["model"] == model].sort_values("ds")
         ax.fill_between(d["ds"], d["lo"], d["hi"], color=COLORS[model], alpha=0.2, linewidth=0)
         ax.plot(d["ds"], d["y"], color=INK, linewidth=1.2)
@@ -106,7 +121,9 @@ def main():
 
     week = metrics[metrics["horizon"] == 168].groupby(["unique_id", "origin"])["MASE"].median()
     sensor, origin = (week - week.median()).abs().idxmin()
-    hero(fc, sensor, origin, RESULTS / "hero.png")
+    ranking = metrics[metrics["horizon"] == 168].groupby("model")["MASE"].mean().sort_values()
+    top = [m for m in ranking.index[:4]] + ["SeasonalNaive"]
+    hero(fc, list(dict.fromkeys(top)), sensor, origin, RESULTS / "hero.png")
     heatmap(history, sensor, RESULTS / "heatmap.png")
 
     report = "\n\n".join(
@@ -114,6 +131,7 @@ def main():
             "## Leaderboard\n\n" + leaderboard(metrics),
             "## Feiertage\n\n" + holiday_split(fc, history),
             "## MASE pro Sensor (7 d)\n\n" + per_sensor(metrics),
+            "## LightGBM: Tuning und Features (Validierung)\n\n" + tuning_table(RESULTS / "tuning.json"),
         ]
     )
     (RESULTS / "leaderboard.md").write_text(report + "\n")
