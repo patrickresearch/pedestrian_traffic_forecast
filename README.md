@@ -120,12 +120,12 @@ app/streamlit_app.py    loads precomputed results only
 ## Reproduce
 
 ```bash
-brew install libomp      # for LightGBM on macOS
+brew install libomp      
 uv sync
 uv run wandb login
 uv run python data/download.py
-uv run python -m src.tune         # ~20 min, writes results/lgb_params.json
-uv run python -m src.backtest     # --debug for details, --resume after an interruption
+uv run python -m src.tune         
+uv run python -m src.backtest     
 uv run python -m src.report
 uv run streamlit run app/streamlit_app.py
 ```
