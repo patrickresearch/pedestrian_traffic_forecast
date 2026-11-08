@@ -5,9 +5,10 @@ import time
 import numpy as np
 import pandas as pd
 
+from src import tracking
 from src.features import ROOT, build_panel
 from src.metrics import score
-from src.models import MODELS
+from src.models import MODELS, lgb_config
 
 RESULTS = ROOT / "results"
 PARTIAL = RESULTS / "partial"
@@ -29,7 +30,7 @@ def mase_scale(train: pd.DataFrame) -> pd.Series:
     return y.apply(lambda s: np.mean(np.abs(s.diff(SEASON).dropna()))).rename("scale")
 
 
-def run_model(name: str, panel: pd.DataFrame, cutoffs: list[pd.Timestamp]) -> pd.DataFrame:
+def run_model(name: str, panel: pd.DataFrame, cutoffs: list[pd.Timestamp], run) -> pd.DataFrame:
     actuals = panel[["unique_id", "ds", "y", "imputed"]]
     out = []
     t_model = time.perf_counter()
@@ -52,11 +53,14 @@ def run_model(name: str, panel: pd.DataFrame, cutoffs: list[pd.Timestamp]) -> pd
             log.warning("%s %s: NaN in Prognose %s", name, origin, nans.to_dict())
         log.debug("Zeilen pro Horizont: %s", fc.groupby("horizon").size().to_dict())
 
+        seconds = time.perf_counter() - t
         week = fc[(fc["horizon"] == H) & ~fc["imputed"]]
-        mase = ((week["y"] - week["yhat"]).abs() / week["scale"]).mean()
+        ase = (week["y"] - week["yhat"]).abs() / week["scale"]
+        mase = ase.mean()
+        run.log({"origin": i, "seconds": seconds, **{f"{m}/mase_7d": v for m, v in ase.groupby(week["model"]).mean().items()}})
         log.info(
             "%-12s [%2d/%d] %s  %5.1fs  MASE(7d) %.3f",
-            name, i, len(cutoffs), f"{origin + pd.Timedelta(hours=1):%Y-%m-%d}", time.perf_counter() - t, mase,
+            name, i, len(cutoffs), f"{origin + pd.Timedelta(hours=1):%Y-%m-%d}", seconds, mase,
         )
         out.append(fc)
     log.info("%s fertig in %.1f min", name, (time.perf_counter() - t_model) / 60)
@@ -70,6 +74,7 @@ def main():
     parser.add_argument("--models", nargs="+", default=list(MODELS), choices=list(MODELS))
     parser.add_argument("--resume", action="store_true", help="reuse checkpoints in results/partial/")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--no-wandb", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -90,6 +95,7 @@ def main():
     log.info("Sensoren: %s", ", ".join(sorted(panel["unique_id"].unique())))
     log.info("%d Ursprünge von %s bis %s, Modelle: %s", len(cutoffs), cutoffs[0], cutoffs[-1], args.models)
 
+    group = f"backtest-{pd.Timestamp.now():%Y%m%d-%H%M}"
     parts = []
     for name in args.models:
         checkpoint = PARTIAL / f"{name}.parquet"
@@ -97,7 +103,15 @@ def main():
             log.info("%s: Checkpoint gefunden, übersprungen", name)
             parts.append(pd.read_parquet(checkpoint))
             continue
-        fc = run_model(name, panel, cutoffs)
+        config = {"model": name, "origins": len(cutoffs), "step": args.step, "horizon": H}
+        if name.startswith("lightgbm"):
+            config["params"] = lgb_config(name == "lightgbm_tuned")
+        with tracking.start("backtest", not args.no_wandb, name=name, group=group, config=config) as run:
+            t = time.perf_counter()
+            fc = run_model(name, panel, cutoffs, run)
+            summary = score(fc).groupby(["model", "horizon"])[["MASE", "sMAPE", "Coverage80"]].mean()
+            run.summary.update({f"{m}/{k}_{h}h": v for (m, h), row in summary.iterrows() for k, v in row.items()})
+            run.summary["minutes"] = (time.perf_counter() - t) / 60
         fc.to_parquet(checkpoint, index=False)
         log.info("Checkpoint gespeichert: %s", checkpoint.relative_to(ROOT))
         parts.append(fc)

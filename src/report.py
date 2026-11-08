@@ -1,9 +1,13 @@
+import argparse
 import json
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 
+import wandb
+
+from src import tracking
 from src.backtest import RESULTS
 from src.palette import COLORS, MODELS
 INK, MUTED, SURFACE = "#0b0b0b", "#898781", "#fcfcfb"
@@ -114,6 +118,10 @@ def heatmap(history: pd.DataFrame, sensor: str, path):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-wandb", action="store_true")
+    args = parser.parse_args()
+
     fc = pd.read_parquet(RESULTS / "forecasts.parquet")
     fc["model"] = fc["model"].astype(str)
     metrics = pd.read_parquet(RESULTS / "metrics.parquet")
@@ -136,6 +144,25 @@ def main():
     )
     (RESULTS / "leaderboard.md").write_text(report + "\n")
     print(report)
+
+    board = metrics.groupby(["model", "horizon"])[["MASE", "sMAPE", "Coverage80"]].mean().unstack()
+    board.columns = [f"{k} {h}h" for k, h in board.columns]
+    board = board.reindex(present(metrics)).rename_axis("model")
+    with tracking.start("report", not args.no_wandb) as run:
+        leaderboard_table = tracking.table(board)
+        run.log(
+            {
+                "hero": wandb.Image(str(RESULTS / "hero.png")),
+                "heatmap": wandb.Image(str(RESULTS / "heatmap.png")),
+                "leaderboard": leaderboard_table,
+                **{
+                    f"mase_{h}h": wandb.plot.bar(leaderboard_table, "model", f"MASE {h}h", title=f"MASE {h} h")
+                    for h in (24, 168)
+                },
+            }
+        )
+        run.summary.update({f"{m}/{c}": v for m, row in board.iterrows() for c, v in row.items()})
+        tracking.log_file(run, RESULTS / "metrics.parquet", "metrics", "results")
 
 
 if __name__ == "__main__":

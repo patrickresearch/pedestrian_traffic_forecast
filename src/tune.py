@@ -15,6 +15,7 @@ import numpy as np
 import optuna
 import pandas as pd
 
+from src import tracking
 from src.backtest import N_ORIGINS, RESULTS, SEASON, STEP, origins
 from src.features import build_panel, lgb_features
 from src.models import HORIZONS, LGB_TUNED, LGB_V1, lgb_fit, lgb_predict, lgb_prepare
@@ -54,8 +55,9 @@ def evaluate(fit, val, cols, cfg, scale) -> float:
     return val_mase(val, lgb_predict(lgb_fit(fit, cols, cfg), val, cols, cfg), scale)
 
 
-def tune_horizon(panel: pd.DataFrame, h: int, trials: int, scale: pd.Series) -> dict:
+def tune_horizon(panel: pd.DataFrame, h: int, trials: int, scale: pd.Series, run) -> dict:
     fit, val, cols = split(panel, h, extended=True)
+    run.define_metric(f"h{h}/*", step_metric=f"h{h}/trial")
 
     def objective(trial: optuna.Trial) -> float:
         cfg = {
@@ -73,6 +75,9 @@ def tune_horizon(panel: pd.DataFrame, h: int, trials: int, scale: pd.Series) -> 
         booster = lgb_fit(fit, cols, cfg, valid=val)
         trial.set_user_attr("num_rounds", booster.best_iteration)
         mase = val_mase(val, lgb_predict(booster, val, cols, cfg), scale)
+        best = min([mase, *(t.value for t in trial.study.get_trials(states=[optuna.trial.TrialState.COMPLETE]))])
+        run.log({f"h{h}/trial": trial.number + 1, f"h{h}/val_mase": mase, f"h{h}/best_mase": best,
+                 f"h{h}/rounds": booster.best_iteration, **{f"h{h}/{k}": v for k, v in cfg.items()}})
         log.debug("Trial %d Parameter: %s", trial.number, cfg)
         log.info(
             "h=%-3d Trial %2d/%d  MASE %.4f  %-5s %-8s lr %.3f leaves %3d rounds %4d  %5.1fs",
@@ -106,6 +111,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--trials", type=int, default=50)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--no-wandb", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -121,13 +127,19 @@ def main():
     log.info("Training bis %s, Validierung bis %s (Backtest beginnt danach)", val_start, test_start)
     log.debug("MASE-Skala: %s", scale.round(1).to_dict())
 
-    params, report = {}, {}
-    for h in HORIZONS:
-        params[h] = tune_horizon(panel, h, args.trials, scale)
-        report[h] = ablation(panel, h, params[h], scale)
+    config = {"trials": args.trials, "val_weeks": VAL_WEEKS, "val_start": str(val_start), "test_start": str(test_start)}
+    with tracking.start("tune", not args.no_wandb, config=config) as run:
+        params, report = {}, {}
+        for h in HORIZONS:
+            params[h] = tune_horizon(panel, h, args.trials, scale, run)
+            report[h] = ablation(panel, h, params[h], scale)
+            run.summary[f"h{h}/best"] = params[h]
 
-    LGB_TUNED.write_text(json.dumps(params, indent=2))
-    (RESULTS / "tuning.json").write_text(json.dumps(report, indent=2))
+        LGB_TUNED.write_text(json.dumps(params, indent=2))
+        (RESULTS / "tuning.json").write_text(json.dumps(report, indent=2))
+        ablation_table = pd.DataFrame(report).rename(columns=lambda h: f"MASE h={h}").rename_axis("variant")
+        run.log({"ablation": tracking.table(ablation_table)})
+        tracking.log_file(run, LGB_TUNED, "lgb-params", "params")
     log.info("Gespeichert: %s, %s", LGB_TUNED.name, "tuning.json")
 
 

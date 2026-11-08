@@ -20,6 +20,7 @@ dependencies = [
     "ipykernel>=6.29",
     "nbconvert>=7.16",
     "optuna>=5.0.0",
+    "wandb>=0.31.0",
 ]
 
 [build-system]

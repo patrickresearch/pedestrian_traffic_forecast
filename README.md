@@ -110,6 +110,7 @@ src/features.py         sensor selection, hourly grid, calendar, weather
 src/models.py           all models behind one interface
 src/metrics.py          MASE, sMAPE, coverage
 src/tune.py             Optuna tuning for LightGBM on a window before the backtest
+src/tracking.py         Weights & Biases runs for tune, backtest and report
 src/backtest.py         rolling backtest, writes results/*.parquet
 src/report.py           README figures and tables
 notebooks/              01_eda, 02_baselines, 03_foundation
@@ -121,12 +122,15 @@ app/streamlit_app.py    loads precomputed results only
 ```bash
 brew install libomp      # for LightGBM on macOS
 uv sync
+uv run wandb login
 uv run python data/download.py
 uv run python -m src.tune         # ~20 min, writes results/lgb_params.json
 uv run python -m src.backtest     # --debug for details, --resume after an interruption
 uv run python -m src.report
 uv run streamlit run app/streamlit_app.py
 ```
+
+Tuning, backtest and report log to the W&B project `pedestrian-forecast`: one run per tuning session (trials, ablation, best parameters as artifact), one run per model in the backtest (MASE per origin, final metrics, grouped by backtest), and one report run (leaderboard, bar charts, figures, metrics artifact). Add `--no-wandb` to run without tracking.
 
 PyTorch and LightGBM load different OpenMP runtimes that deadlock each other in one process, so Chronos runs in a separate process.
 
